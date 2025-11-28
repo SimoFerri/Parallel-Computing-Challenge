@@ -374,40 +374,39 @@ int evolve_step_parallel(GridGhost &cur, GridGhost &next) {
       if (y1 > H) y1 = H; // If tile_width is not a multiple of the W
       for (int y = tile_h; y < y1; y++) {
         for (int x = tile_w; x < x1; x++) {
-        int idx = (y+1)*WG + x+1;
-        unsigned char alive = cur.alive[idx];
+          int idx = (y+1)*WG + x+1;
+          unsigned char alive = cur.alive[idx];
 
-        int alive_neighbors = 0;
-        float parent_hues[8];
+          if(alive) {
+            next.alive[idx] = 1;
+            next.hue[idx] = cur.hue[idx];
+            continue;
+          }
 
-        // count alive moore neighbors and collect their hues
-        for (int dx = -1; dx <= 1; dx++) {
+          int alive_neighbors = 0;
+          float parent_hues[8];
+
+          // count alive moore neighbors and collect their hues
           for (int dy = -1; dy <= 1; dy++) {
-            if (dx == 0 && dy == 0) continue;
-            // wrap around the grid (torus)
-            int nidx = (y + 1 + dy) * WG + (x + 1 + dx);
-            if (cur.alive[nidx]) {
-              parent_hues[alive_neighbors] = cur.hue[nidx];
-              alive_neighbors++;
+            for (int dx = -1; dx <= 1; dx++) {
+              if (dx == 0 && dy == 0) continue;
+              // wrap around the grid (torus)
+              int nidx = (y + 1 + dy) * WG + (x + 1 + dx);
+              if (cur.alive[nidx]) {
+                parent_hues[alive_neighbors] = cur.hue[nidx];
+                alive_neighbors++;
+              }
             }
           }
-        }
 
-        unsigned char new_alive = alive;
+          unsigned char new_alive = alive;
 
-        if (!alive) { // If the cell is IS NOT alive
           if (birth_rule(alive_neighbors)) { // Check if the birth rule is satisfied
-            new_alive = 1; // set new_alive to alive (=1), compute the hue of the
+            next.alive[idx] = 1; // set new_alive to alive (=1), compute the hue of the
                           // cell of the next grid as the hue_average
             next.hue[idx] = hue_average(parent_hues, alive_neighbors);
+            changes = 1; // Update changes
           }
-        } else {
-            next.hue[idx] = cur.hue[idx];
-        }//This is always true in the challenge
-
-        next.alive[idx] = new_alive; // Set the cell of the next grid to new_alive
-        if (new_alive != alive)
-          changes = 1; // Update changes
         }
       }
     }
