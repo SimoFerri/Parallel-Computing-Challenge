@@ -1,0 +1,4 @@
+- Trivial "#pragma omp parallel for" on every for loop of the sequential implementation
+- Pipeline the steps, this must be checked but could be at the same time really powerful and really complex
+- Reuse liveness checks during the iterations
+- Partionate the grid and assign each partition to a core in order to exploit caches
