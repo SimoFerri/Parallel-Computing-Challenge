@@ -131,7 +131,10 @@ void initialize_grid(Grid &g) {
 bool compare_grids(const Grid &a, const Grid &b) {
   int N = a.W * a.H;
   for (int i = 0; i < N; i++) {
-    if (a.alive[i] != b.alive[i]) return false;
+    if (a.alive[i] != b.alive[i]) {
+        printf("BRODO\n");
+        return false;
+    }
     if (a.alive[i]) {
       float ha = a.hue[i];
       float hb = b.hue[i];
@@ -361,42 +364,60 @@ int evolve_step_parallel(GridGhost &cur, GridGhost &next) {
   cur.alive[(H + 1) * WG + (W + 1)] = cur.alive[1 * WG + 1];
   cur.hue  [(H + 1) * WG + (W + 1)] = cur.hue  [1 * WG + 1];
 
-
+  int tile_height = 128;
   int tile_width = 128;
 
   // iterate over all cells
   #pragma omp parallel for schedule(runtime) shared(changes) collapse(2)
-  for (int tile_h = 0; tile_h < H; tile_h+=tile_width) {
+  for (int tile_h = 0; tile_h < H; tile_h+=tile_height) {
     for (int tile_w= 0; tile_w < W; tile_w+=tile_width) {
       int x1 = tile_w + tile_width;
-      int y1 = tile_h + tile_width;
+      int y1 = tile_h + tile_height;
       if (x1 > W) x1 = W; // If tile_width is not a multiple of the W
       if (y1 > H) y1 = H; // If tile_width is not a multiple of the W
       for (int y = tile_h; y < y1; y++) {
+        int left = -1;
+        int center = -1;
+        int right = -1;
+        float parent_hues[8];
         for (int x = tile_w; x < x1; x++) {
           int idx = (y+1)*WG + x+1;
 
           if(cur.alive[idx]) {
             next.alive[idx] = 1;
             next.hue[idx] = cur.hue[idx];
+            left = -1;
             continue;
           }
-
-          int alive_neighbors = 0;
-          float parent_hues[8];
-
-          // count alive moore neighbors and collect their hues
-          for (int dy = -1; dy <= 1; dy++) {
-            for (int dx = -1; dx <= 1; dx++) {
-              if (dx == 0 && dy == 0) continue;
-              // wrap around the grid (torus)
-              int nidx = (y + 1 + dy) * WG + (x + 1 + dx);
-              if (cur.alive[nidx]) {
-                parent_hues[alive_neighbors] = cur.hue[nidx];
-                alive_neighbors++;
+          
+          if(left == -1) {
+            left = 0;
+            for(int dy = -1; dy <= 1; ++dy) {
+              int nidx = (y + 1 + dy) * WG + x;
+              if(cur.alive[nidx]) {
+                parent_hues[left] = cur.hue[nidx];
+                left++;
+              }
+            }
+            center = 0;
+            for(int dy = -1; dy <= 1; ++dy) {
+              int nidx = (y + 1 + dy) * WG + (x + 1);
+              if(cur.alive[nidx]) {
+                parent_hues[left + center] = cur.hue[nidx];
+                center++;
               }
             }
           }
+          right = 0;
+          for(int dy = -1; dy <= 1; ++dy) {
+            int nidx = (y + 1 + dy) * WG + (x + 2);
+            if(cur.alive[nidx]) {
+              parent_hues[left + center + right] = cur.hue[nidx];
+              right++;
+            }
+          }
+          
+          int alive_neighbors = left + center + right;
 
           if (birth_rule(alive_neighbors)) { // Check if the birth rule is satisfied
             next.alive[idx] = 1; // set new_alive to alive (=1), compute the hue of the
@@ -404,13 +425,19 @@ int evolve_step_parallel(GridGhost &cur, GridGhost &next) {
             next.hue[idx] = hue_average(parent_hues, alive_neighbors);
             changes = 1; // Update changes
           }
+
+          for(int i = left; i < alive_neighbors; ++i) {
+            parent_hues[i - left] = parent_hues[i];
+          }
+
+          left = center;
+          center = right;
         }
       }
     }
   }
   return changes;
 }
-
 
 void simulate_parallel(Grid &g) {
   // it's hard to perform updates in place, we ping-pong between grid copies

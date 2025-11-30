@@ -19,7 +19,7 @@
 // =================================================
 
 // if you need any additional standard library up to C11 or C++17, add it here
-#include <iostream>
+
 // if you need any additional define, add it here
 
 // toggle this to save time when profiling
@@ -42,8 +42,18 @@ struct Grid {
   Grid(int w, int h) : W(w), H(h), alive(w*h,0), hue(w*h,0.0f) {}
 };
 
+struct GridGhost {
+  int W, H;
+  int WG, HG;
+  std::vector<unsigned char> alive; // size: W*H
+  std::vector<float> hue; // size: W*H
+  // constructor: allocates and owns two dynamic arrays via std::vector
+  GridGhost(int w, int h) : W(w), H(h), WG(w+2), HG(h+2), alive((w+2)*(h+2),0), hue((w+2)*(h+2),0.0f) {}
+};
+
 // =================================================
 // === DO NOT CHANGE ANYTHING BELOW THIS COMMENT ===
+
 // game rules B368 / S012345678:
 // - a dead cell is born if alive neighbor count is 3, 6, or 8
 // - a live cell survives with ANY count 0..8
@@ -122,17 +132,14 @@ bool compare_grids(const Grid &a, const Grid &b) {
   int N = a.W * a.H;
   for (int i = 0; i < N; i++) {
     if (a.alive[i] != b.alive[i]) {
-        std::cout << "lifness error" << std::endl;
+        printf("BRODO\n");
         return false;
     }
     if (a.alive[i]) {
       float ha = a.hue[i];
       float hb = b.hue[i];
       // compare hue with a tolerance on floats (due to associativity)
-      if (fabs(ha - hb) > 1e-4f) {
-          std::cout << "color error" << std::endl;
-          return false;
-      }
+      if (fabs(ha - hb) > 1e-4f) return false;
     }
   }
   return true;
@@ -234,71 +241,223 @@ void simulate_sequential(Grid &g) {
 
 // ===> IMPLEMENT YOUR VERSION OF THIS FUNCTION <===
 // as of now this is a stub: it just calls the sequential version...
-void print_grid(Grid &g) {
-    for(int j = 0; j < g.H; ++j) {
-        for(int i = 0; i < g.W; ++i) {
-            std::cout << (int)g.alive[j * g.W + i] << " ";
-        }
-        std::cout << std::endl;
+// advance the simulation by one step; return the count of changed cells
+bool compare_ghost_grids(const Grid &a, const GridGhost &b) {
+  int W = a.W;
+  int H = a.H;
+  int WG = b.WG;
+
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      int idx_a = y * W + x;
+      int idx_b = (y + 1) * WG + (x + 1); // map into ghosted layout
+
+      if (a.alive[idx_a] != b.alive[idx_b]) return false;
+      if (a.alive[idx_a]) {
+        float ha = a.hue[idx_a];
+        float hb = b.hue[idx_b];
+        if (fabs(ha - hb) > 1e-4f) return false;
+      }
     }
-    std::cout << std::endl;
+  }
+  return true;
 }
 
-int parallel_step(Grid &cur, Grid &next) {
-    int changes = 0;
-    int chunk_size = (cur.W * cur.H) / (omp_get_max_threads() * 1);
-    //int chunk_size = 1;
 
-    #pragma omp parallel for collapse(2) reduction(|:changes) schedule(static)
-    for(int y = 0; y < cur.H; ++y) {
-        for(int x = 0; x < cur.W; ++x) {
-            int idx = y * cur.W + x;
-            unsigned char alive = cur.alive[idx];
-            int alive_neighbors = 0;
-            float parent_hues[8];
-           
+void grid_to_ghost(GridGhost &GG, Grid &G) {
+  int W = G.W;
+  int H = G.H;
+  int WG = GG.WG;
+  int HG = GG.HG;
+
+
+  for (int y = 0; y < H; y++) {
+    int idx = (y*W); // idx of the origin Grid (no ghost)
+    // Here I have to skip the first row (y+1), and the left column (+1). Then
+    // with mempcy I copy exactly W elements so I only copy the non-ghost cells 
+    int idx_ghost = (y+1) * WG + 1;  
+
+    memcpy(&GG.alive[idx_ghost], &G.alive[idx], W*sizeof(unsigned char));
+    memcpy(&GG.hue[idx_ghost], &G.hue[idx], W*sizeof(float));
+  }
+
+  // Now I have to fill the ghost rows and columns
+  // First the rows:
+  
+  
+  for (int x = 0; x < W; x++) {
+    GG.alive[x + 1] = GG.alive[(H) * WG + (x + 1)];
+    GG.hue[x + 1] = GG.hue[(H) * WG + (x + 1)];
+
+    GG.alive[(H + 1) * WG + (x + 1)] = GG.alive[1 * WG + (x + 1)];
+    GG.hue[(H + 1) * WG + (x + 1)] = GG.hue[1 * WG + (x + 1)];
+  }
+
+
+   for (int y = 0; y < H; y++) {
+    GG.alive[(y + 1) * WG] = GG.alive[(y + 1) * WG + W];
+    GG.hue[(y + 1) * WG] = GG.hue[(y + 1) * WG + W];
+    
+    GG.alive[(y + 1) * WG + (W + 1)] = GG.alive[(y + 1) * WG + 1];
+    GG.hue[(y + 1) * WG + (W + 1)] = GG.hue[(y + 1) * WG + 1];
+  }
+
+
+  // Now the corners
+  GG.alive[0] = GG.alive[H * WG + W];
+  GG.hue[0] = GG.hue[H * WG + W];
+  GG.alive[W + 1] = GG.alive[H * WG + 1];
+  GG.hue[W + 1] = GG.hue[H * WG + 1];
+  GG.alive[(H + 1) * WG] = GG.alive[1 * WG + W];
+  GG.hue[(H + 1) * WG] = GG.hue[1 * WG + W];
+  GG.alive[(H + 1) * WG + (W + 1)] = GG.alive[1 * WG + 1];
+  GG.hue[(H + 1) * WG + (W + 1)] = GG.hue[1 * WG + 1];
+}
+
+void ghost_to_grid(GridGhost &GG, Grid &G) {
+  int W = G.W;
+  int H = G.H;
+  int WG = GG.WG;
+  int HG = GG.HG;
+
+  for (int y = 0; y < H; y++) {
+    int idx = (y*W); // idx of the origin Grid (no ghost)
+    // Here I have to skip the first row (y+1), and the left column (+1). Then
+    // with mempcy I copy exactly W elements so I only copy the non-ghost cells 
+    int idx_ghost = (y+1) * WG + 1;  
+
+    memcpy(&G.alive[idx], &GG.alive[idx_ghost], W*sizeof(unsigned char));
+    memcpy(&G.hue[idx], &GG.hue[idx_ghost], W*sizeof(float));
+  }
+}
+
+int evolve_step_parallel(GridGhost &cur, GridGhost &next) {
+  int W = cur.W, H = cur.H;
+  int WG = cur.WG;
+  int changes = 0;
+
+  for (int x = 0; x < W; ++x) {
+    cur.alive[0 * WG + (x + 1)] = cur.alive[H * WG + (x + 1)];      // top <- last interior row
+    cur.hue  [0 * WG + (x + 1)] = cur.hue  [H * WG + (x + 1)];
+    cur.alive[(H + 1) * WG + (x + 1)] = cur.alive[1 * WG + (x + 1)];// bottom <- first interior row
+    cur.hue  [(H + 1) * WG + (x + 1)] = cur.hue  [1 * WG + (x + 1)];
+  }
+
+  // left and right ghost columns (rows 1..H)
+  for (int y = 0; y < H; ++y) {
+    cur.alive[(y + 1) * WG + 0] = cur.alive[(y + 1) * WG + W];      // left <- last interior col
+    cur.hue  [(y + 1) * WG + 0] = cur.hue  [(y + 1) * WG + W];
+    cur.alive[(y + 1) * WG + (W + 1)] = cur.alive[(y + 1) * WG + 1]; // right <- first interior col
+    cur.hue  [(y + 1) * WG + (W + 1)] = cur.hue  [(y + 1) * WG + 1];
+  }
+
+  // corners
+  cur.alive[0] = cur.alive[H * WG + W];
+  cur.hue  [0] = cur.hue  [H * WG + W];
+
+  cur.alive[W + 1] = cur.alive[H * WG + 1];
+  cur.hue  [W + 1] = cur.hue  [H * WG + 1];
+
+  cur.alive[(H + 1) * WG] = cur.alive[1 * WG + W];
+  cur.hue  [(H + 1) * WG] = cur.hue  [1 * WG + W];
+
+  cur.alive[(H + 1) * WG + (W + 1)] = cur.alive[1 * WG + 1];
+  cur.hue  [(H + 1) * WG + (W + 1)] = cur.hue  [1 * WG + 1];
+
+  int tile_height = 128;
+  int tile_width = 128;
+
+  // iterate over all cells
+  #pragma omp parallel for schedule(runtime) shared(changes) collapse(2)
+  for (int tile_h = 0; tile_h < H; tile_h+=tile_height) {
+    for (int tile_w= 0; tile_w < W; tile_w+=tile_width) {
+      int x1 = tile_w + tile_width;
+      int y1 = tile_h + tile_height;
+      if (x1 > W) x1 = W; // If tile_width is not a multiple of the W
+      if (y1 > H) y1 = H; // If tile_width is not a multiple of the W
+      for (int y = tile_h; y < y1; y++) {
+        int left = -1;
+        int center = -1;
+        int right = -1;
+        float parent_hues[8];
+        for (int x = tile_w; x < x1; x++) {
+          int idx = (y+1)*WG + x+1;
+
+          if(cur.alive[idx]) {
+            next.alive[idx] = 1;
+            next.hue[idx] = cur.hue[idx];
+            left = -1;
+            continue;
+          }
+          
+          if(left == -1) {
+            left = 0;
             for(int dy = -1; dy <= 1; ++dy) {
-                for(int dx = -1; dx <= 1; ++dx) {
-                    if(dx == 0 && dy == 0) continue;
-                    int nx = (x + dx + cur.W) % cur.W;
-                    int ny = (y + dy + cur.H) % cur.H;
-                    int neighbor_idx = ny * cur.W + nx;
-                    if(cur.alive[neighbor_idx]) {
-                        parent_hues[alive_neighbors] = cur.hue[neighbor_idx];
-                        alive_neighbors++;
-                    }
-                }
+              int nidx = (y + 1 + dy) * WG + x;
+              if(cur.alive[nidx]) {
+                parent_hues[left] = cur.hue[nidx];
+                left++;
+              }
             }
+            center = 0;
+            for(int dy = -1; dy <= 1; ++dy) {
+              int nidx = (y + 1 + dy) * WG + (x + 1);
+              if(cur.alive[nidx]) {
+                parent_hues[left + center] = cur.hue[nidx];
+                center++;
+              }
+            }
+          }
+          right = 0;
+          for(int dy = -1; dy <= 1; ++dy) {
+            int nidx = (y + 1 + dy) * WG + (x + 2);
+            if(cur.alive[nidx]) {
+              parent_hues[left + center + right] = cur.hue[nidx];
+              right++;
+            }
+          }
+          
+          int alive_neighbors = left + center + right;
 
-            if(!alive) {
-                if(birth_rule(alive_neighbors)) {
-                    next.alive[idx] = 1;
-                    next.hue[idx] = hue_average(parent_hues, alive_neighbors);
-                    changes = 1;
-                }
-            } else if(alive) {
-                next.alive[idx] = alive;
-                next.hue[idx] = cur.hue[idx];
-            } else {
-                next.alive[idx] = alive;
-            }
+          if (birth_rule(alive_neighbors)) { // Check if the birth rule is satisfied
+            next.alive[idx] = 1; // set new_alive to alive (=1), compute the hue of the
+                          // cell of the next grid as the hue_average
+            next.hue[idx] = hue_average(parent_hues, alive_neighbors);
+            changes = 1; // Update changes
+          }
+
+          for(int i = left; i < alive_neighbors; ++i) {
+            parent_hues[i - left] = parent_hues[i];
+          }
+
+          left = center;
+          center = right;
         }
+      }
     }
-
-    return changes;
+  }
+  return changes;
 }
 
 void simulate_parallel(Grid &g) {
-    Grid tmp(g.W, g.H);
+  // it's hard to perform updates in place, we ping-pong between grid copies
+  GridGhost tmp(g.W, g.H);
+  GridGhost grid(g.W, g.H);
+  grid_to_ghost(grid, g);
 
-    for(long step = 0; step < MAX_STEPS; ++step) {
-        int changes = parallel_step(g, tmp);
+  for (long step = 0; step < MAX_STEPS; step++) {
+    // one step at a time
+    // note: fully overwrites tmp with the next state
+    int changes = evolve_step_parallel(grid, tmp);
 
-        g.alive.swap(tmp.alive);
-        g.hue.swap(tmp.hue);
+    // swap g <-> tmp
+    grid.alive.swap(tmp.alive);
+    grid.hue.swap(tmp.hue);
 
-        if(changes == 0) break;
-    }
+    if (changes == 0) break;
+  }
+
+  ghost_to_grid(grid, g);
 }
 
 // =================================================
@@ -346,6 +505,9 @@ int main(int argc, char **argv) {
     printf("Sequent. time: %.6f s\n", t2 - t1);
     #endif
     printf("Parallel time: %.6f s\n", t4 - t3);
+    #if !DISABLE_SEQUENTIAL
+    printf("Speedup: %.6f\n", (t2-t1)/(t4-t3));
+    #endif
 
     #if !DISABLE_SEQUENTIAL
     bool equal = compare_grids(gs, gp);
