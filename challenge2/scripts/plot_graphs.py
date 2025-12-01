@@ -19,21 +19,21 @@ def read_xy_from_csv(filename):
     return x, y
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         sys.exit(1)
 
-    lwd_file = sys.argv[1]
-    new_lwd_file = sys.argv[2]
-
+    nof = int(sys.argv[1])
+    lwd_file = sys.argv[2]
     x1, y1 = read_xy_from_csv(lwd_file)
-    x2, y2 = read_xy_from_csv(new_lwd_file)
-
     plt.plot(x1, y1, marker='o', label=lwd_file)
-    plt.plot(x2, y2, marker='s', label=new_lwd_file)
+    if(nof > 1):
+        new_lwd_file = sys.argv[3]
+        x2, y2 = read_xy_from_csv(new_lwd_file)
+        plt.plot(x2, y2, marker='s', label=new_lwd_file)
 
-    plt.xlabel("Size")
+    plt.xlabel("Size/Steps")
     plt.ylabel("Time")
-    plt.title("Speed comparsion")
+    plt.title("")
     plt.grid(True)
     plt.legend()
     plt.show()
