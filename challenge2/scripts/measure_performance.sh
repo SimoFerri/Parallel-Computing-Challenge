@@ -22,7 +22,7 @@ for ((size=${min_size};size<=${max_size};size += ${step})); do
     echo "Running size ${size} ..."
     time=0.0
     for ((i=0;i<${runs};i++)); do
-        t=$(./build/old ${size} ${size} ${seed} | sed 's/[^0-9.]//g')
+        t=$(./lwd ${size} ${size} ${seed} | sed 's/[^0-9.]//g')
         time=$(echo "scale=5; ${time} + ${t}" | bc)
     done
     time=$(echo "scale=5; ${time} / 5" | bc)
