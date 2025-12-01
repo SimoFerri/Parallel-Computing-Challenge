@@ -429,13 +429,14 @@ int evolve_step_parallel(GridGhost &cur, GridGhost &next) {
   return changes;
 }
 
-void simulate_parallel(Grid &g) {
+long simulate_parallel(Grid &g) {
   // it's hard to perform updates in place, we ping-pong between grid copies
   GridGhost tmp(g.W, g.H);
   GridGhost grid(g.W, g.H);
   grid_to_ghost(grid, g);
 
-  for (long step = 0; step < MAX_STEPS; step++) {
+  long step = 0;
+  for (; step < MAX_STEPS; step++) {
     // one step at a time
     // note: fully overwrites tmp with the next state
     int changes = evolve_step_parallel(grid, tmp);
@@ -448,6 +449,7 @@ void simulate_parallel(Grid &g) {
   }
 
   ghost_to_grid(grid, g);
+  return step;
 }
 
 // =================================================
@@ -488,7 +490,7 @@ int main(int argc, char **argv) {
 
     // parallel
     double t3 = omp_get_wtime();
-    simulate_parallel(gp);
+    long steps = simulate_parallel(gp);
     double t4 = omp_get_wtime();
 
     #if !DISABLE_SEQUENTIAL
@@ -508,6 +510,7 @@ int main(int argc, char **argv) {
     // =================================================
 
     // if you need more logging, put it here!
+    printf("Parallel steps: %lu\n", steps);
 
     // =================================================
     // === DO NOT CHANGE ANYTHING BELOW THIS COMMENT ===

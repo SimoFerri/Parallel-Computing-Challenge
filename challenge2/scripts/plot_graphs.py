@@ -23,13 +23,17 @@ def main():
         sys.exit(1)
 
     nof = int(sys.argv[1])
-    lwd_file = sys.argv[2]
-    x1, y1 = read_xy_from_csv(lwd_file)
-    plt.plot(x1, y1, marker='o', label=lwd_file)
+    file1 = sys.argv[2]
+    x1, y1 = read_xy_from_csv(file1)
+    plt.plot(x1, y1, marker='o', label=file1)
     if(nof > 1):
-        new_lwd_file = sys.argv[3]
-        x2, y2 = read_xy_from_csv(new_lwd_file)
-        plt.plot(x2, y2, marker='s', label=new_lwd_file)
+        file2 = sys.argv[3]
+        x2, y2 = read_xy_from_csv(file2)
+        plt.plot(x2, y2, marker='s', label=file2)
+        if(nof > 2):
+            file3 = sys.argv[4]
+            x3, y3 = read_xy_from_csv(file3)
+            plt.plot(x3, y3, marker='*', label=file3)
 
     plt.xlabel("Size/Steps")
     plt.ylabel("Time")
