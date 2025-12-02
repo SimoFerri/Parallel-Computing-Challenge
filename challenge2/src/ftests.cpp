@@ -371,13 +371,15 @@ int evolve_step_parallel(GridGhost &cur, GridGhost &next) {
     int center = -1;
     int right = -1;
     float parent_hues[8];
+    std::vector<unsigned char> next_alive_local(W);
+    std::vector<float>  next_hue_local(W);
     int row_start = (y + 1) * WG + 1;
     for (int x = 0; x < W; x++) {
       int idx = row_start + x;
 
       if(cur.alive[idx]) {
-        next.alive[idx] = 1;
-        next.hue[idx] = cur.hue[idx];
+        next_alive_local[x] = 1;
+        next_hue_local[x] = cur.hue[idx];
         left = -1;
         continue;
       }
@@ -412,9 +414,9 @@ int evolve_step_parallel(GridGhost &cur, GridGhost &next) {
       int alive_neighbors = left + center + right;
 
       if (birth_rule(alive_neighbors)) { // Check if the birth rule is satisfied
-        next.alive[idx] = 1; // set new_alive to alive (=1), compute the hue of the
+        next_alive_local[x] = 1; // set new_alive to alive (=1), compute the hue of the
                       // cell of the next grid as the hue_average
-        next.hue[idx] = hue_average(parent_hues, alive_neighbors);
+        next_hue_local[x] = hue_average(parent_hues, alive_neighbors);
         changes = 1; // Update changes
       }
 
@@ -424,6 +426,11 @@ int evolve_step_parallel(GridGhost &cur, GridGhost &next) {
 
       left = center;
       center = right;
+    }
+   
+    for(int i = 0; i < W; ++i) {
+      next.alive[row_start + i] = next_alive_local[i];
+      next.hue[row_start + i] = next_hue_local[i];
     }
   }
     
